@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: "/Solitair/",
+  base: "/Solitaired/",
   plugins: [react(), tailwindcss()],
   build: { target: "es2020", cssCodeSplit: true },
   resolve: {
