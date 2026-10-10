@@ -500,6 +500,146 @@ export function canProgress(g: Game, maxStates = 14000, budgetMs = 70): boolean 
   return false;
 }
 
+/**
+ * Depth-first search for a full win from a freshly dealt game (all cards known).
+ * Sound but incomplete: it never moves cards off a foundation and skips
+ * pointless run shuffles, so `true` means winnable, `false` means "not proven".
+ */
+export function isSolvable(g: Game, maxStates = 6000): boolean {
+  const suitOf = (id: number) => Math.floor(id / 13);
+  const rankOf = (id: number) => (id % 13) + 1;
+  const red = (id: number) => suitOf(id) === 1 || suitOf(id) === 2;
+  const fits = (id: number, col: number[]) =>
+    col.length === 0 ? rankOf(id) === 13 : red(col[col.length - 1]) !== red(id) && rankOf(col[col.length - 1]) === rankOf(id) + 1;
+
+  interface S {
+    tab: number[][];
+    down: number[];
+    fnd: number[];
+    stock: number[];
+    waste: number[];
+  }
+  const clone = (s: S): S => ({ tab: s.tab.slice(), down: s.down.slice(), fnd: s.fnd.slice(), stock: s.stock, waste: s.waste });
+  const start: S = {
+    tab: g.tableau.map((c) => c.map((x) => x.id)),
+    down: g.tableau.map((col) => col.reduce((n, c) => n + (c.up ? 0 : 1), 0)),
+    fnd: g.foundations.map((f) => f.length),
+    stock: g.stock.map((x) => x.id),
+    waste: g.waste.map((x) => x.id),
+  };
+
+  const seen = new Set<string>();
+  const canFound = (s: S, id: number) => s.fnd[suitOf(id)] === rankOf(id) - 1;
+  const isSafe = (s: S, id: number) => {
+    const r = rankOf(id);
+    if (r <= 2) return true;
+    const opp = red(id) ? [0, 3] : [1, 2];
+    return s.fnd[opp[0]] >= r - 1 && s.fnd[opp[1]] >= r - 1;
+  };
+  // remove the top n cards of column c (s must be a private clone); reveal a face-down card if exposed
+  const popTab = (s: S, c: number, n = 1) => {
+    s.tab[c] = s.tab[c].slice(0, s.tab[c].length - n);
+    if (s.tab[c].length > 0 && s.tab[c].length === s.down[c]) s.down[c]--;
+  };
+
+  const dfs = (s0: S): boolean => {
+    const s = clone(s0);
+    for (let moved = true; moved; ) {
+      moved = false;
+      const w = s.waste[s.waste.length - 1];
+      if (w !== undefined && canFound(s, w) && isSafe(s, w)) {
+        s.fnd[suitOf(w)]++;
+        s.waste = s.waste.slice(0, -1);
+        moved = true;
+      }
+      for (let c = 0; c < 7; c++) {
+        const col = s.tab[c];
+        if (col.length <= s.down[c]) continue;
+        const t = col[col.length - 1];
+        if (canFound(s, t) && isSafe(s, t)) {
+          s.fnd[suitOf(t)]++;
+          popTab(s, c);
+          moved = true;
+        }
+      }
+    }
+    if (s.fnd.every((n) => n === 13)) return true;
+    if (seen.size >= maxStates) return false;
+    const key = s.tab.map((c, i) => s.down[i] + ":" + c.join(",")).join("|") + "#" + s.stock.join(",") + "#" + s.waste.join(",");
+    if (seen.has(key)) return false;
+    seen.add(key);
+
+    // tableau -> tableau: whole face-up runs first (reveal a card / empty a column),
+    // then partial runs only when they expose a card that can go to a foundation
+    for (const whole of [true, false]) {
+      for (let c = 0; c < 7; c++) {
+        const col = s.tab[c];
+        for (let k = s.down[c]; k < col.length; k++) {
+          if ((k === s.down[c]) !== whole) continue;
+          if (!whole && rankOf(col[k - 1]) !== s.fnd[suitOf(col[k - 1])] + 1) continue;
+          for (let d = 0; d < 7; d++) {
+            if (d === c || !fits(col[k], s.tab[d])) continue;
+            if (k === 0 && s.tab[d].length === 0) continue; // pointless king shuffle
+            const n = clone(s);
+            const run = col.slice(k);
+            popTab(n, c, run.length);
+            n.tab[d] = [...n.tab[d], ...run];
+            if (dfs(n)) return true;
+          }
+        }
+      }
+    }
+    const w = s.waste[s.waste.length - 1];
+    if (w !== undefined) {
+      for (let d = 0; d < 7; d++) {
+        if (!fits(w, s.tab[d])) continue;
+        const n = clone(s);
+        n.waste = s.waste.slice(0, -1);
+        n.tab[d] = [...n.tab[d], w];
+        if (dfs(n)) return true;
+      }
+      if (canFound(s, w)) {
+        const n = clone(s);
+        n.waste = s.waste.slice(0, -1);
+        n.fnd[suitOf(w)]++;
+        if (dfs(n)) return true;
+      }
+    }
+    for (let c = 0; c < 7; c++) {
+      const col = s.tab[c];
+      if (col.length <= s.down[c] || !canFound(s, col[col.length - 1])) continue;
+      const n = clone(s);
+      n.fnd[suitOf(col[col.length - 1])]++;
+      popTab(n, c);
+      if (dfs(n)) return true;
+    }
+    if (s.stock.length) {
+      const k = Math.min(g.drawCount, s.stock.length);
+      const n = clone(s);
+      n.stock = s.stock.slice(0, s.stock.length - k);
+      n.waste = [...s.waste, ...s.stock.slice(s.stock.length - k).reverse()];
+      return dfs(n);
+    }
+    if (s.waste.length) {
+      const n = clone(s);
+      n.stock = s.waste.slice().reverse();
+      n.waste = [];
+      return dfs(n);
+    }
+    return false;
+  };
+  return dfs(start);
+}
+
+/** First seed at or after `seed` whose deal the solver can prove winnable. */
+export function solvableSeed(seed: number, drawCount: 1 | 3, tries = 300): number {
+  for (let i = 0; i < tries; i++) {
+    const s = (seed + i) >>> 0;
+    if (isSolvable(deal(s, drawCount))) return s;
+  }
+  return seed >>> 0;
+}
+
 export function isStuck(g: Game): boolean {
   if (isWon(g)) return false;
   return !canProgress(g);

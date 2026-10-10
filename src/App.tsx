@@ -9,7 +9,7 @@ import { Wipe, Letterbox } from "./components/Overlays";
 import { HelpModal, PauseModal, ResultModal, ScoresModal } from "./components/Modals";
 import { useKlondike } from "./hooks/useKlondike";
 import type { ToastTone } from "./hooks/useKlondike";
-import { dailySeed, foundationCount, getPile } from "./game/rules";
+import { dailySeed, foundationCount, getPile, randomSeed, solvableSeed } from "./game/rules";
 import type { Cursor, PileRef } from "./game/types";
 import type { Game } from "./game/types";
 import {
@@ -177,7 +177,7 @@ export default function App() {
         setCursor(null);
         setShowCursor(false);
         kRef.current.startGame({
-          seed: daily ? dailySeed() : undefined,
+          seed: solvableSeed(daily ? dailySeed() : randomSeed(), settingsRef.current.draw),
           draw: settingsRef.current.draw,
           daily,
           fromMenu: true,
@@ -196,7 +196,7 @@ export default function App() {
 
   const newDeal = useCallback(() => {
     setModal(null);
-    kRef.current.startGame({ draw: settingsRef.current.draw });
+    kRef.current.startGame({ seed: solvableSeed(randomSeed(), settingsRef.current.draw), draw: settingsRef.current.draw });
   }, []);
 
   const toMenu = useCallback(() => {

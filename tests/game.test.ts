@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMove, deal, drawFromStock, findHint, isLegalMove, isWon, makeCard, planAutoFinish } from "../src/game/rules";
+import { applyMove, deal, drawFromStock, findHint, isLegalMove, isWon, makeCard, planAutoFinish, isSolvable, solvableSeed } from "../src/game/rules";
 import { smoothing } from "../src/fx/motion";
 import type { Game } from "../src/game/types";
 
@@ -68,5 +68,17 @@ describe("game invariants", () => {
     };
     expect(sample(60)).toBeCloseTo(sample(120), 12);
     expect(sample(120)).toBeCloseTo(sample(144), 12);
+  });
+});
+
+describe("solvable deals", () => {
+  it.each([1, 3] as const)("solvableSeed returns a deal the solver proves winnable (draw-%i)", draw => {
+    const t = performance.now();
+    for (const s of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const seed = solvableSeed(s, draw);
+      expect(seed).toBeGreaterThanOrEqual(s);
+      expect(isSolvable(deal(seed, draw))).toBe(true);
+    }
+    console.log(`draw-${draw}: 10 seeds in ${Math.round(performance.now() - t)}ms`);
   });
 });
